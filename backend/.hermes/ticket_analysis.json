@@ -1,0 +1,102 @@
+{
+  "summary_text": "13 open tickets, 2 critical, 3 high, 5 medium, 3 low. The two critical issues — Safari date picker and silent session expiry — block core POS workflows across user segments. High-severity items (mobile nav broken, notification miscounts, silent API failures) compound the risk for on-the-go staff and order-critical flows. No tickets are in progress, meaning zero active remediation despite the severity mix.",
+  "top_risks": [
+    "Unannounced session expiry can cause data loss mid-transaction",
+    "Safari breakage blocks iOS Safari users — significant mobile POS segment",
+    "Mobile nav broken + notification badge wrong creates compounding UX failure on mobile"
+  ],
+  "action_items": [
+    {
+      "problem": "Date picker broken on Safari — likely missing -webkit- prefix, date input polyfill, or Safari-incompatible date library",
+      "solution": "Audit date picker component for cross-browser support: polyfill for Safari's lacking date input support, add -webkit-appearance and touch-target styles, test on Safari 15–17. Use flatpickr or native Intl.DateTimeFormat fallback if using <input type='date'>.",
+      "owner": "Frontend Dev",
+      "priority": "critical",
+      "done": false
+    },
+    {
+      "problem": "Session expires without warning — no idle timer UI or pre-expiry notification to save work",
+      "problem": "Session expires without warning — no idle timer UI or pre-expiry notification to save work",
+      "solution": "Add session-lifecycle observer on frontend: show warning modal at T-60s before expiry with 'Extend Session' button, trigger auto-save draft on expiry timer. Backend: ensure session TTL is returned in auth response headers so frontend can track remaining time.",
+      "owner": "Frontend Dev",
+      "priority": "critical",
+      "done": false
+    },
+    {
+      "problem": "Mobile nav menu broken — likely touch-event or z-index issue with hamburger/drawer",
+      "solution": "Check hamburger toggle handler for touch events (add touchstart listener), verify drawer z-index > overlay and body overflow hidden on open. Test on iOS Safari and Chrome Android. Use CSS :has() selector fallback for older WebKit.",
+      "owner": "Frontend Dev",
+      "priority": "high",
+      "done": false
+    },
+    {
+      "problem": "Notification badge shows wrong count — stale state or WebSocket message dedup failure",
+      "solution": "Trace notification reducer: verify WebSocket messages are deduplicated by ID (not replayed), check badge calculation reads from unread count not total count, add server-side count verification endpoint for client sync every 30s.",
+      "owner": "Frontend Dev",
+      "priority": "high",
+      "done": false
+    },
+    {
+      "problem": "API timeout returns no user-facing error message — user sees blank/spinner forever",
+      "solution": "Add Axios/fetch interceptor with configurable timeout (default 15s), catch timeout errors and show 'Request timed out. Check your connection and try again.' toast. Backend: verify request-scoped timeout middleware is configured on POST routes with body parsing.",
+      "owner": "Frontend Dev",
+      "priority": "high",
+      "done": false
+    },
+    {
+      "problem": "Export CSV is missing columns — likely column mapping mismatch between query and CSV serializer",
+      "solution": "Compare DB query SELECT columns against CSV header definition in exporter; add unit test that checks header count matches data length per row. Verify joined/fk columns are aliased correctly.",
+      "owner": "Backend Dev",
+      "priority": "medium",
+      "done": false
+    },
+    {
+      "problem": "Avatar upload fails for files >1MB — missing multipart size limit or client-side validation",
+      "solution": "Add 5MB limit server-side in file upload middleware (multipart.MaxMemory or nginx client_max_body_size), add client-side check before upload with 'File too large (max 5MB)' message, compress oversized images client-side with canvas API before upload.",
+      "owner": "Frontend Dev",
+      "priority": "medium",
+      "done": false
+    },
+    {
+      "problem": "Pagination resets when sorting a column — state coupling between sort and page number in URL/state",
+      "solution": "Reset page to 1 on every sort change before firing the API request. In URL state (query params), order params so sort change clears page param. Add integration test: sort column, verify page=1 and previous page data is replaced.",
+      "owner": "Frontend Dev",
+      "priority": "medium",
+      "done": false
+    },
+    {
+      "problem": "Form validation fires too early — validates on mount or on first keystroke before user interaction",
+      "solution": "Add 'touched' field tracking per control: only show validation error after blur or after user has modified the field. Use useForm's shouldValidate: 'onBlur' or 'onSubmit' config. Reset touched state on field clear.",
+      "owner": "Frontend Dev",
+      "priority": "medium",
+      "done": false
+    },
+    {
+      "problem": "Email template has broken layout — likely missing table-based fallback or inline CSS for email clients",
+      "solution": "Convert email templates to table-based layout with inline styles only (no <style> tags). Test on Litmus/Email on Acid for Gmail, Outlook, Apple Mail. Add MJML preprocessor or Foundation for Emails if templates are authored in HTML.",
+      "owner": "Frontend Dev",
+      "priority": "medium",
+      "done": false
+    },
+    {
+      "problem": "Dark mode flickers on load — flash of unstyled content before theme script runs",
+      "solution": "Inline theme-detection script in <head> before CSS loads: check localStorage theme preference or prefers-color-scheme media query and set data-theme attribute immediately. Prevents FOUC by applying class before paint.",
+      "owner": "Frontend Dev",
+      "priority": "low",
+      "done": false
+    },
+    {
+      "problem": "Search ignores special characters like +, @, # — likely query builder strips/escapes them incorrectly",
+      "solution": "Audit search query sanitizer: allow alphanumeric + common specials (+@#.-_), escape only SQL/NoSQL injection characters. Add test cases for product codes containing '+' or '#'.",
+      "owner": "Frontend Dev",
+      "priority": "low",
+      "done": false
+    },
+    {
+      "problem": "Table sort direction indicator shows wrong state — data sorts correctly but arrow icon points wrong way",
+      "solution": "Check sort-direction state toggle: verify ascending → descending → none cycle matches the icon class applied. Review reducer/parent component to ensure active sort column + direction are correctly paired in state.",
+      "owner": "Frontend Dev",
+      "priority": "low",
+      "done": false
+    }
+  ]
+}

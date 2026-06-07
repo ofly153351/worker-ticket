@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  select option { color: #0f172a; }
+}
+
+/* ─── Smooth UX — entrance animations ─────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ─── border-round design tokens ──────────────────────────────────────────── */
+/*
+ * Rule: "อะไรที่มี border ใช้ border-round ด้วย"
+ * border-round     → panels, dropdowns, toasts, modals  (rounded-xl = 12px)
+ * border-round-sm  → inputs, selects, textareas          (rounded-btn = 8px)
+ * border-round-lg  → cards (AppCard uses this internally) (rounded-card = 16px)
+ */
+@layer components {
+  /* rounded-xl  = 12px  → panels, dropdowns, toasts, image grids  */
+  .border-round {
+    @apply border border-slate-200 dark:border-slate-700 rounded-xl;
+  }
+  /* rounded-btn = 8px   → inputs, selects, textareas, small buttons */
+  .border-round-sm {
+    @apply border border-slate-200 dark:border-slate-700 rounded-[8px];
+  }
+  /* rounded-card= 16px  → cards, skeleton wrappers                 */
+  .border-round-lg {
+    @apply border border-slate-200/80 dark:border-slate-800 rounded-[16px];
+  }
+  /* dashed variant */
+  .border-round-dashed {
+    @apply border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-[16px];
+  }
+}
+
+@layer utilities {
+  .smooth-fade       { animation: fade-in        200ms ease-out both; }
+  .smooth-fade-up    { animation: fade-up         220ms ease-out both; }
+  .smooth-fade-down  { animation: fade-down       180ms ease-out both; }
+  .scale-in          { animation: scale-in        180ms ease-out both; }
+  .slide-in-right    { animation: slide-in-right  220ms ease-out both; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(100,116,139,.28); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,.45); background-clip: content-box; }
+  .dark ::-webkit-scrollbar-thumb { background: rgba(148,163,184,.22); background-clip: content-box; }
+}
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .smooth-fade, .smooth-fade-up, .smooth-fade-down, .scale-in, .slide-in-right {
+    animation: none;
+  }
+  * { transition-duration: 0.01ms !important; }
+}

@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+
+# Hermes runtime config (contains API keys / webhooks)
+backend/hermes-config.json
+backend/hermes-profiles.json
+
+# Build output
+dist/
+**/dist/
+*.tsbuildinfo
+
+# Uploads (local fallback dir)
+backend/uploads/
+
+# Prisma generated client
+backend/node_modules/.prisma/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
