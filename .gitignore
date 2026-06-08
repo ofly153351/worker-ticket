@@ -2,12 +2,20 @@
 node_modules/
 **/node_modules/
 
-# Environment / secrets
-.env
-.env.*
-!.env.example
-**/.env
-!**/.env.example
+# ── Environment ──────────────────────────────────────────────────────────────
+# Frontend (root) Vite env: VITE_* are PUBLIC (baked into the client bundle).
+#   .env.development / .env.production  → committed (no secrets)
+#   .env / .env.local / .env.*.local    → ignored (machine-specific overrides)
+/.env
+/.env.local
+/.env.*.local
+
+# Backend env: contains DB password / MinIO secret → never commit (only *.example)
+backend/.env
+backend/.env.development
+backend/.env.production
+backend/.env.local
+backend/.env.*.local
 
 # Hermes runtime config (contains API keys / webhooks)
 backend/hermes-config.json

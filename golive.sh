@@ -115,7 +115,15 @@ echo -e "${RESET}  log: $LOG_FILE"
 # ── 0. Pre-flight ────────────────────────────────────────────────────────────
 step "Pre-flight checks"
 [[ -d "$BACKEND_DIR" ]]   || die "ไม่พบ backend/ ที่ $BACKEND_DIR"
-[[ -f "$BACKEND_DIR/.env" ]] || die "ไม่พบ backend/.env — คัดลอกจาก backend/.env.example ก่อน"
+# production prefers .env.production; fall back to .env (backward compatible)
+if [[ -f "$BACKEND_DIR/.env.production" ]]; then
+  BACKEND_ENV="$BACKEND_DIR/.env.production"
+elif [[ -f "$BACKEND_DIR/.env" ]]; then
+  BACKEND_ENV="$BACKEND_DIR/.env"
+else
+  die "ไม่พบ backend/.env หรือ .env.production — คัดลอกจาก .env.production.example ก่อน"
+fi
+ok "backend env: $(basename "$BACKEND_ENV")"
 command -v node  &>/dev/null || die "node ไม่ได้ติดตั้ง"
 command -v npm   &>/dev/null || die "npm ไม่ได้ติดตั้ง"
 command -v docker &>/dev/null || die "docker ไม่ได้ติดตั้ง"
@@ -145,7 +153,7 @@ else
 fi
 
 # load backend env (DATABASE_URL, MINIO_*, etc.) — read AFTER pull
-set -a; source "$BACKEND_DIR/.env"; set +a
+set -a; source "$BACKEND_ENV"; set +a
 
 # ── 1. Verify shared Docker services (Postgres + MinIO) ──────────────────────
 step "Docker services (PostgreSQL + MinIO)"
@@ -257,19 +265,20 @@ else
   PUBLIC_MEDIA="http://localhost:${MINIO_PORT}"
 fi
 
-# frontend: VITE_API_BASE_URL is baked at build time → must set before vite build
-cat > "$FRONTEND_DIR/.env" <<EOF
+# frontend: VITE_API_BASE_URL baked at build → write the production-mode override
+# (.env.production.local wins over committed .env.production, and is gitignored)
+cat > "$FRONTEND_DIR/.env.production.local" <<EOF
 VITE_API_BASE_URL=${PUBLIC_API}
 EOF
-ok "frontend .env → VITE_API_BASE_URL=${PUBLIC_API}"
+ok "frontend .env.production.local → VITE_API_BASE_URL=${PUBLIC_API}"
 
 # backend: MINIO_PUBLIC_URL used at runtime for image URLs
-if grep -q "^MINIO_PUBLIC_URL=" "$BACKEND_DIR/.env"; then
-  sed -i.bak "s|^MINIO_PUBLIC_URL=.*|MINIO_PUBLIC_URL=${PUBLIC_MEDIA}|" "$BACKEND_DIR/.env" && rm -f "$BACKEND_DIR/.env.bak"
+if grep -q "^MINIO_PUBLIC_URL=" "$BACKEND_ENV"; then
+  sed -i.bak "s|^MINIO_PUBLIC_URL=.*|MINIO_PUBLIC_URL=${PUBLIC_MEDIA}|" "$BACKEND_ENV" && rm -f "${BACKEND_ENV}.bak"
 else
-  echo "MINIO_PUBLIC_URL=${PUBLIC_MEDIA}" >> "$BACKEND_DIR/.env"
+  echo "MINIO_PUBLIC_URL=${PUBLIC_MEDIA}" >> "$BACKEND_ENV"
 fi
-ok "backend MINIO_PUBLIC_URL=${PUBLIC_MEDIA}"
+ok "backend MINIO_PUBLIC_URL=${PUBLIC_MEDIA} ($(basename "$BACKEND_ENV"))"
 
 # ── 4. Build backend (deps → prisma → tsc) ───────────────────────────────────
 step "Build backend"
