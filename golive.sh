@@ -33,10 +33,11 @@ FRONTEND_DIR="$SCRIPT_DIR"
 BACKEND_DIR="$SCRIPT_DIR/backend"
 LOG_FILE="$SCRIPT_DIR/golive.log"
 
-# Cloudflare tunnel — dedicated to this app, won't touch the pos tunnel
-TUNNEL_NAME="obx-ticket"
-TUNNEL_CONFIG="$HOME/.cloudflared/obx-ticket-config.yml"
-ZONE_FILE="$SCRIPT_DIR/.tunnel_zone"          # remembers chosen zone/subdomains
+# Cloudflare tunnel — SHARE the existing POS tunnel (one cloudflared, many hosts).
+# We just add ticket.* ingress rules to its config + route DNS to it.
+SHARED_TUNNEL_CONFIG="$HOME/.cloudflared/config.yml"   # POS / shared tunnel config
+SHARED_TUNNEL_PM2="pos-tunnel"                         # PM2 name of the running tunnel
+ZONE_FILE="$SCRIPT_DIR/.tunnel_zone"                   # remembers chosen zone/subdomains
 
 # Shared Docker containers (provided by pos-backend stack)
 PG_CONTAINER="pos-backend-postgres-1"
@@ -182,71 +183,68 @@ else
   warn "ไม่พบ mc client container — ข้ามการตั้ง bucket (ตรวจเองว่า bucket public)"
 fi
 
-# ── 2. Cloudflare Tunnel (first run: create + configure) ─────────────────────
+# ── 2. Cloudflare Tunnel — share the POS tunnel, add ticket.* hosts ──────────
 FE_HOST=""; BE_HOST=""; MEDIA_HOST=""
+TUNNEL_CHANGED=false
 if [[ "$WITH_TUNNEL" == true ]]; then
-  step "Cloudflare Tunnel"
+  step "Cloudflare Tunnel (shared)"
 
+  [[ -f "$SHARED_TUNNEL_CONFIG" ]] || die "ไม่พบ shared tunnel config $SHARED_TUNNEL_CONFIG — ตั้ง POS tunnel ให้รันก่อน"
+
+  # tunnel id/name read straight from the shared config's `tunnel:` line
+  TUNNEL_REF=$(grep -E '^[[:space:]]*tunnel:' "$SHARED_TUNNEL_CONFIG" | head -1 | awk '{print $2}')
+  [[ -n "$TUNNEL_REF" ]] || die "อ่าน tunnel id จาก $SHARED_TUNNEL_CONFIG ไม่ได้"
+  ok "ใช้ tunnel ร่วมกับ POS (ref: $TUNNEL_REF)"
+
+  # zone / subdomains — prompt once, remember
   if [[ -f "$ZONE_FILE" ]]; then
-    # reuse saved zone/subdomains
     ZONE=$(sed -n '1p' "$ZONE_FILE")
     FE_HOST=$(sed -n '2p' "$ZONE_FILE")
     BE_HOST=$(sed -n '3p' "$ZONE_FILE")
     MEDIA_HOST=$(sed -n '4p' "$ZONE_FILE")
     ok "ใช้ค่าเดิม: $FE_HOST / $BE_HOST / $MEDIA_HOST"
   else
-    # login if needed
-    cloudflared tunnel list &>/dev/null 2>&1 || { info "ล็อกอิน Cloudflare (browser จะเปิด)..."; cloudflared tunnel login; }
-
     echo ""
-    echo -e "${BOLD}ตั้งค่า Cloudflare Tunnel (zone เดียวกับ POS):${RESET}"
+    echo -e "${BOLD}ตั้งค่า subdomain (zone เดียวกับ POS):${RESET}"
     read -rp "  Domain / zone (เช่น example.com)        : " ZONE
     [[ -n "$ZONE" ]] || die "ต้องระบุ zone"
     read -rp "  Subdomain frontend  [${DEF_FE_SUB}]      : " s1;  s1="${s1:-$DEF_FE_SUB}"
     read -rp "  Subdomain backend   [${DEF_BE_SUB}]      : " s2;  s2="${s2:-$DEF_BE_SUB}"
     read -rp "  Subdomain media     [${DEF_MEDIA_SUB}]   : " s3;  s3="${s3:-$DEF_MEDIA_SUB}"
     FE_HOST="${s1}.${ZONE}"; BE_HOST="${s2}.${ZONE}"; MEDIA_HOST="${s3}.${ZONE}"
-
-    # resolve tunnel id by NAME column (col 2); create only if truly missing.
-    # tolerate "already exists" so a half-finished previous run is recoverable.
-    tunnel_id_by_name() {
-      cloudflared tunnel list 2>/dev/null | awk -v n="$TUNNEL_NAME" '$2==n {print $1; exit}'
-    }
-    TUNNEL_ID="$(tunnel_id_by_name)"
-    if [[ -z "$TUNNEL_ID" ]]; then
-      info "สร้าง tunnel '$TUNNEL_NAME'..."
-      cloudflared tunnel create "$TUNNEL_NAME" >>"$LOG_FILE" 2>&1 \
-        || warn "tunnel create มี error (อาจมีอยู่แล้ว) — จะลองหา id ต่อ"
-      TUNNEL_ID="$(tunnel_id_by_name)"
-    else
-      ok "tunnel '$TUNNEL_NAME' มีอยู่แล้ว (id: ${TUNNEL_ID})"
-    fi
-    [[ -n "$TUNNEL_ID" ]] || die "หา tunnel id ของ '$TUNNEL_NAME' ไม่เจอ — ลอง: cloudflared tunnel list"
-
-    mkdir -p "$HOME/.cloudflared"
-    cat > "$TUNNEL_CONFIG" <<EOF
-tunnel: ${TUNNEL_ID}
-credentials-file: ${HOME}/.cloudflared/${TUNNEL_ID}.json
-
-ingress:
-  - hostname: ${FE_HOST}
-    service: http://localhost:${FE_PORT}
-  - hostname: ${BE_HOST}
-    service: http://localhost:${BE_PORT}
-  - hostname: ${MEDIA_HOST}
-    service: http://localhost:${MINIO_PORT}
-  - service: http_status:404
-EOF
-    ok "เขียน tunnel config: $TUNNEL_CONFIG"
-
-    info "สร้าง DNS records..."
-    cloudflared tunnel route dns "$TUNNEL_NAME" "$FE_HOST"    2>>"$LOG_FILE" || warn "DNS $FE_HOST อาจมีอยู่แล้ว"
-    cloudflared tunnel route dns "$TUNNEL_NAME" "$BE_HOST"    2>>"$LOG_FILE" || warn "DNS $BE_HOST อาจมีอยู่แล้ว"
-    cloudflared tunnel route dns "$TUNNEL_NAME" "$MEDIA_HOST" 2>>"$LOG_FILE" || warn "DNS $MEDIA_HOST อาจมีอยู่แล้ว"
-
     printf '%s\n%s\n%s\n%s\n' "$ZONE" "$FE_HOST" "$BE_HOST" "$MEDIA_HOST" > "$ZONE_FILE"
     ok "บันทึกค่าไว้ที่ $ZONE_FILE"
   fi
+
+  # merge ticket.* ingress rules into the shared config (idempotent + backup).
+  # Inserts BEFORE the `service: http_status:404` catch-all so they take effect.
+  if grep -q "hostname: ${FE_HOST}" "$SHARED_TUNNEL_CONFIG"; then
+    ok "ingress ticket.* มีอยู่ใน shared config แล้ว"
+  else
+    grep -q "http_status:404" "$SHARED_TUNNEL_CONFIG" \
+      || die "shared config ไม่มี catch-all (http_status:404) — เพิ่ม ingress เองไม่ปลอดภัย"
+    cp "$SHARED_TUNNEL_CONFIG" "${SHARED_TUNNEL_CONFIG}.bak.$(date +%s)"
+    awk -v fe="$FE_HOST" -v be="$BE_HOST" -v media="$MEDIA_HOST" \
+        -v fp="$FE_PORT" -v bp="$BE_PORT" -v mp="$MINIO_PORT" '
+      /http_status:404/ && !ins {
+        print "  - hostname: " fe;    print "    service: http://localhost:" fp
+        print "  - hostname: " be;    print "    service: http://localhost:" bp
+        print "  - hostname: " media; print "    service: http://localhost:" mp
+        ins=1
+      } { print }
+    ' "$SHARED_TUNNEL_CONFIG" > "${SHARED_TUNNEL_CONFIG}.tmp" \
+      && mv "${SHARED_TUNNEL_CONFIG}.tmp" "$SHARED_TUNNEL_CONFIG"
+    TUNNEL_CHANGED=true
+    ok "เพิ่ม ingress ticket.* เข้า shared config (backup ไว้แล้ว)"
+  fi
+
+  # route DNS for all three hosts → the shared tunnel (idempotent)
+  info "ตรวจ/สร้าง DNS records → tunnel ร่วม..."
+  for h in "$FE_HOST" "$BE_HOST" "$MEDIA_HOST"; do
+    cloudflared tunnel route dns "$TUNNEL_REF" "$h" >>"$LOG_FILE" 2>&1 \
+      && ok "DNS $h → tunnel" \
+      || warn "DNS $h: อาจมีอยู่แล้ว/ชี้ tunnel อื่น — ดู $LOG_FILE"
+  done
 fi
 
 # ── 3. Wire public URLs into env (BEFORE building frontend) ──────────────────
@@ -294,15 +292,25 @@ ok "frontend → dist/"
 # ── 6. Start via PM2 ─────────────────────────────────────────────────────────
 step "Start services (PM2)"
 cd "$SCRIPT_DIR"
+# remove any old per-app tunnel from the previous (separate-tunnel) design
 pm2 delete ticket-backend ticket-frontend ticket-tunnel >>"$LOG_FILE" 2>&1 || true
 pm2 start ecosystem.config.cjs >>"$LOG_FILE" 2>&1
 ok "ticket-backend + ticket-frontend เริ่มแล้ว"
 
+# shared tunnel: reload the existing pos-tunnel so it picks up new ingress rules
 if [[ "$WITH_TUNNEL" == true ]]; then
-  pm2 start cloudflared --name ticket-tunnel --interpreter none -- \
-    tunnel --config "$TUNNEL_CONFIG" run >>"$LOG_FILE" 2>&1
-  sleep 4
-  pm2 show ticket-tunnel 2>/dev/null | grep -q "online" && ok "tunnel online" || warn "tunnel อาจยัง connect ไม่เสร็จ — ดู: pm2 logs ticket-tunnel"
+  if pm2 describe "$SHARED_TUNNEL_PM2" >/dev/null 2>&1; then
+    if [[ "$TUNNEL_CHANGED" == true ]]; then
+      info "restart $SHARED_TUNNEL_PM2 เพื่อโหลด ingress ใหม่..."
+      pm2 restart "$SHARED_TUNNEL_PM2" >>"$LOG_FILE" 2>&1
+    fi
+    sleep 4
+    pm2 show "$SHARED_TUNNEL_PM2" 2>/dev/null | grep -q "online" \
+      && ok "shared tunnel ($SHARED_TUNNEL_PM2) online" \
+      || warn "tunnel อาจยัง connect ไม่เสร็จ — ดู: pm2 logs $SHARED_TUNNEL_PM2"
+  else
+    warn "ไม่พบ PM2 process '$SHARED_TUNNEL_PM2' — รีสตาร์ท cloudflared เองเพื่อโหลด config ใหม่"
+  fi
 fi
 
 pm2 save >>"$LOG_FILE" 2>&1
@@ -341,10 +349,11 @@ echo "  PM2:"
 echo "    pm2 status                  — ดู process"
 echo "    pm2 logs ticket-backend     — log backend"
 echo "    pm2 logs ticket-frontend    — log frontend"
-echo "    pm2 logs ticket-tunnel      — log tunnel"
+echo "    pm2 logs ${SHARED_TUNNEL_PM2}        — log tunnel (ใช้ร่วมกับ POS)"
 echo "    pm2 restart ticket-backend  — restart"
 echo ""
-echo "  Stop: pm2 delete ticket-backend ticket-frontend ticket-tunnel"
+echo "  Stop ticket: pm2 delete ticket-backend ticket-frontend"
+echo "  (tunnel ${SHARED_TUNNEL_PM2} ใช้ร่วมกับ POS — อย่าลบ)"
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
 pm2 status 2>/dev/null | grep -E "ticket-|Name" || true
