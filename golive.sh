@@ -207,12 +207,21 @@ if [[ "$WITH_TUNNEL" == true ]]; then
     read -rp "  Subdomain media     [${DEF_MEDIA_SUB}]   : " s3;  s3="${s3:-$DEF_MEDIA_SUB}"
     FE_HOST="${s1}.${ZONE}"; BE_HOST="${s2}.${ZONE}"; MEDIA_HOST="${s3}.${ZONE}"
 
-    # create tunnel if missing
-    if ! cloudflared tunnel list 2>/dev/null | grep -q "$TUNNEL_NAME"; then
+    # resolve tunnel id by NAME column (col 2); create only if truly missing.
+    # tolerate "already exists" so a half-finished previous run is recoverable.
+    tunnel_id_by_name() {
+      cloudflared tunnel list 2>/dev/null | awk -v n="$TUNNEL_NAME" '$2==n {print $1; exit}'
+    }
+    TUNNEL_ID="$(tunnel_id_by_name)"
+    if [[ -z "$TUNNEL_ID" ]]; then
       info "สร้าง tunnel '$TUNNEL_NAME'..."
-      cloudflared tunnel create "$TUNNEL_NAME" >>"$LOG_FILE" 2>&1
+      cloudflared tunnel create "$TUNNEL_NAME" >>"$LOG_FILE" 2>&1 \
+        || warn "tunnel create มี error (อาจมีอยู่แล้ว) — จะลองหา id ต่อ"
+      TUNNEL_ID="$(tunnel_id_by_name)"
+    else
+      ok "tunnel '$TUNNEL_NAME' มีอยู่แล้ว (id: ${TUNNEL_ID})"
     fi
-    TUNNEL_ID=$(cloudflared tunnel list 2>/dev/null | awk "/$TUNNEL_NAME/ {print \$1}")
+    [[ -n "$TUNNEL_ID" ]] || die "หา tunnel id ของ '$TUNNEL_NAME' ไม่เจอ — ลอง: cloudflared tunnel list"
 
     mkdir -p "$HOME/.cloudflared"
     cat > "$TUNNEL_CONFIG" <<EOF
