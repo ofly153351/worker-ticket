@@ -1,16 +1,20 @@
 <template>
   <div class="space-y-3">
-    <!-- Drop zone -->
+    <!-- Drop / paste zone -->
     <div
+      tabindex="0"
       @dragover.prevent="dragging = true"
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
+      @paste="onPaste"
       @click="fileInput?.click()"
       :class="[
-        'relative flex flex-col items-center justify-center text-center border-round-dashed cursor-pointer transition-colors py-9 px-6',
+        'relative flex flex-col items-center justify-center text-center border-round-dashed cursor-pointer transition-all py-9 px-6 outline-none',
         dragging
           ? 'border-brand bg-slate-50 dark:bg-slate-800'
-          : 'hover:border-slate-400 dark:hover:border-slate-600 bg-slate-50/60 dark:bg-slate-800/30',
+          : pasteFlash
+            ? 'border-brand ring-2 ring-brand/30 bg-brand/5'
+            : 'hover:border-slate-400 dark:hover:border-slate-600 bg-slate-50/60 dark:bg-slate-800/30 focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/20',
       ]"
     >
       <div class="w-12 h-12 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-brand mb-3 shadow-sm">
@@ -18,6 +22,10 @@
       </div>
       <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">
         <span class="text-brand">Click to upload</span> or drag &amp; drop
+      </p>
+      <p class="text-[12px] text-slate-400 mt-1">
+        or paste a screenshot
+        <kbd class="font-mono text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded">{{ pasteKey }}</kbd>
       </p>
       <p class="text-[12px] text-slate-400 mt-1">PNG, JPG or WEBP · up to 5 MB each · multiple allowed</p>
       <input ref="fileInput" type="file" :accept="ACCEPTED.join(',')" multiple class="hidden" @change="onInputChange" />
@@ -51,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import AppIcon      from '@/components/ui/AppIcon.vue'
 import { useToast } from '@/composables/useToast'
 
@@ -61,11 +69,58 @@ const MAX_SIZE  = 5 * 1024 * 1024
 interface Preview { id: string; file: File; url: string; name: string; size: number }
 
 const emit = defineEmits<{ 'update:modelValue': [files: File[]] }>()
-const { error: toastError } = useToast()
+const { error: toastError, success: toastSuccess } = useToast()
 
 const fileInput = ref<HTMLInputElement>()
 const dragging  = ref(false)
 const previews  = ref<Preview[]>([])
+const pasteFlash = ref(false)
+
+// ⌘V on macOS, Ctrl+V elsewhere
+const pasteKey = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘V' : 'Ctrl+V'
+
+/** Pull image files out of a clipboard event */
+function imagesFromClipboard(items?: DataTransferItemList | null): File[] {
+  if (!items) return []
+  const files: File[] = []
+  for (const item of Array.from(items)) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const f = item.getAsFile()
+      if (f) {
+        // pasted screenshots often have a generic/empty name → give a friendly one
+        const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
+        const name = f.name && f.name !== 'image.png'
+          ? f.name
+          : `pasted-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.${ext}`
+        files.push(new File([f], name, { type: f.type }))
+      }
+    }
+  }
+  return files
+}
+
+function onPaste(e: ClipboardEvent) {
+  const imgs = imagesFromClipboard(e.clipboardData?.items)
+  if (!imgs.length) return            // no image in clipboard → let normal paste happen
+  e.preventDefault()
+  addFiles(imgs)
+  pasteFlash.value = true
+  setTimeout(() => { pasteFlash.value = false }, 600)
+  toastSuccess('Pasted', imgs.length === 1 ? '1 image added from clipboard' : `${imgs.length} images added`)
+}
+
+/** Global paste — copy a screenshot anywhere then ⌘V/Ctrl+V on the page.
+ *  Skips when focus is in a text field (so pasting text into inputs is untouched). */
+function onGlobalPaste(e: ClipboardEvent) {
+  const el = document.activeElement as HTMLElement | null
+  const tag = el?.tagName
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable
+  if (typing) return
+  onPaste(e)
+}
+
+onMounted(() => document.addEventListener('paste', onGlobalPaste))
+onUnmounted(() => document.removeEventListener('paste', onGlobalPaste))
 
 function addFiles(list: FileList | File[]) {
   const added: Preview[] = []
