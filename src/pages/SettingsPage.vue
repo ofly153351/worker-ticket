@@ -23,8 +23,11 @@
       </button>
     </div>
 
+    <!-- Animated tab switch: leave → enter (out-in) so heights don't overlap -->
+    <Transition name="tab" mode="out-in">
+
     <!-- ══════════════ PROFILES TAB ══════════════ -->
-    <div v-show="activeTab === 'profiles'" class="space-y-6 smooth-fade-up">
+    <div v-if="activeTab === 'profiles'" key="profiles" class="space-y-6">
 
     <!-- Profiles toolbar -->
     <div class="flex items-center justify-end gap-2">
@@ -211,7 +214,7 @@
     <!-- ══════════════ END PROFILES TAB ══════════════ -->
 
     <!-- ══════════════ SCHEDULE TAB ══════════════ -->
-    <div v-show="activeTab === 'schedule'" class="space-y-6 smooth-fade-up">
+    <div v-else-if="activeTab === 'schedule'" key="schedule" class="space-y-6">
 
     <!-- ── Schedule ─────────────────────────────────────────────────── -->
     <section class="space-y-3">
@@ -293,7 +296,7 @@
     <!-- ══════════════ END SCHEDULE TAB ══════════════ -->
 
     <!-- ══════════════ PREFERENCES TAB ══════════════ -->
-    <div v-show="activeTab === 'preferences'" class="space-y-6 smooth-fade-up">
+    <div v-else key="preferences" class="space-y-6">
 
     <!-- ── Appearance ──────────────────────────────────────────────── -->
     <section class="space-y-3">
@@ -341,6 +344,8 @@
 
     </div>
     <!-- ══════════════ END PREFERENCES TAB ══════════════ -->
+
+    </Transition>
 
     <!-- Modals -->
     <ProfileModal v-model="modalOpen" :profile="editingProfile" :providers="appProviders" :meta="meta" @saved="loadApp" />
@@ -580,3 +585,17 @@ onUnmounted(() => {
   if (resyncTimer) clearInterval(resyncTimer)
 })
 </script>
+
+<style scoped>
+/* Tab switch — snappy fade+slide. out-in: old leaves, then new enters
+   (no overlap → no layout jump between tabs of different heights). */
+.tab-enter-active { transition: opacity 0.18s ease-out, transform 0.18s ease-out; }
+.tab-leave-active { transition: opacity 0.10s ease-in,  transform 0.10s ease-in; }
+.tab-enter-from   { opacity: 0; transform: translateY(8px); }
+.tab-leave-to     { opacity: 0; transform: translateY(-6px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-enter-active, .tab-leave-active { transition: none; }
+  .tab-enter-from, .tab-leave-to { transform: none; }
+}
+</style>
