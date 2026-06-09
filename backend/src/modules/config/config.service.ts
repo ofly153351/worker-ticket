@@ -81,10 +81,18 @@ async function probeLMStudio(endpoint = 'http://localhost:1234'): Promise<Provid
   }
 }
 
+const CLOUD_ENDPOINTS: Record<string, string> = {
+  openai:        'https://api.openai.com/v1',
+  'openai-codex':'https://chatgpt.com/backend-api/codex',
+  anthropic:     'https://api.anthropic.com',
+  deepseek:      'https://api.deepseek.com/v1',
+  google:        'https://generativelanguage.googleapis.com',
+}
+
 function cloudProvider(id: string, name: string, models: string[]): ProviderInfo {
   return {
     id, name, type: 'cloud',
-    endpoint: id === 'openai' ? 'https://api.openai.com/v1' : id === 'anthropic' ? 'https://api.anthropic.com' : 'https://generativelanguage.googleapis.com',
+    endpoint: CLOUD_ENDPOINTS[id] ?? '',
     status: 'online',
     requiresApiKey: true,
     models: models.map(m => ({ id: m, name: m, provider: id, status: 'online' as const })),
@@ -95,6 +103,9 @@ export async function discoverProviders(): Promise<ProviderInfo[]> {
   const [ollama, lmstudio] = await Promise.all([probeOllama(), probeLMStudio()])
 
   return [
+    // deepseek + codex first — primary providers used by this project
+    cloudProvider('deepseek', 'DeepSeek', ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']),
+    cloudProvider('openai-codex', 'OpenAI Codex', ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.2']),
     ollama,
     lmstudio,
     cloudProvider('openai', 'OpenAI', ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']),

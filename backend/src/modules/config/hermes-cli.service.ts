@@ -60,19 +60,29 @@ const PROVIDER_LABELS: Record<string, string> = {
   'together':     'Together AI',
 }
 
-/* ── Read providers from hermes cache ───────────────────────────── */
-export function getAvailableProviders(): HermesProvider[] {
-  const providers: HermesProvider[] = []
-  const cachePath = path.join(HERMES_HOME, 'provider_models_cache.json')
+// Providers that must ALWAYS be offered (with sensible default models) even when
+// the hermes model cache is missing/empty. Cache models override these when present.
+const GUARANTEED_PROVIDERS: Record<string, string[]> = {
+  'deepseek':     ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
+  'openai-codex': ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.2'],
+  'ollama':       [],
+  'lmstudio':     [],
+}
 
+/* ── Read providers from hermes cache, merged with guaranteed defaults ──── */
+export function getAvailableProviders(): HermesProvider[] {
+  const byId = new Map<string, HermesProvider>()
+
+  // 1. from the hermes model cache (live, authoritative when present)
   try {
+    const cachePath = path.join(HERMES_HOME, 'provider_models_cache.json')
     const cache = JSON.parse(fs.readFileSync(cachePath, 'utf-8'))
     for (const [id, data] of Object.entries(cache as Record<string, any>)) {
       const rawModels: any[] = data.models ?? []
       const models: ProviderModel[] = rawModels.map(m =>
         typeof m === 'string' ? { id: m } : { id: m.id ?? m.name, name: m.name }
       )
-      providers.push({
+      byId.set(id, {
         id,
         label: PROVIDER_LABELS[id] ?? id,
         baseUrl: data.base_url ?? PROVIDER_BASE_URLS[id] ?? '',
@@ -81,16 +91,27 @@ export function getAvailableProviders(): HermesProvider[] {
     }
   } catch {}
 
-  // Always add ollama + lmstudio even if not in cache
-  const existingIds = providers.map(p => p.id)
-  if (!existingIds.includes('ollama')) {
-    providers.push({ id: 'ollama', label: 'Ollama', baseUrl: 'http://localhost:11434/v1', models: [] })
-  }
-  if (!existingIds.includes('lmstudio')) {
-    providers.push({ id: 'lmstudio', label: 'LM Studio', baseUrl: 'http://localhost:1234/v1', models: [] })
+  // 2. guarantee deepseek / codex / ollama / lmstudio exist; fill models if cache had none
+  for (const [id, defaultModels] of Object.entries(GUARANTEED_PROVIDERS)) {
+    const existing = byId.get(id)
+    if (!existing) {
+      byId.set(id, {
+        id,
+        label: PROVIDER_LABELS[id] ?? id,
+        baseUrl: PROVIDER_BASE_URLS[id] ?? '',
+        models: defaultModels.map(m => ({ id: m })),
+      })
+    } else if (existing.models.length === 0 && defaultModels.length) {
+      existing.models = defaultModels.map(m => ({ id: m }))
+    }
   }
 
-  return providers
+  // deepseek + codex first (most used here), then the rest
+  const order = ['deepseek', 'openai-codex']
+  return [...byId.values()].sort((a, b) => {
+    const ai = order.indexOf(a.id), bi = order.indexOf(b.id)
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+  })
 }
 
 /* ── Profile helpers ─────────────────────────────────────────────── */
