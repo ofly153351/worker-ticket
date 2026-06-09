@@ -171,11 +171,22 @@ function extractJson(raw: string): HermesResult | null {
   return null
 }
 
+// hermes is a Python CLI that needs python + its deps on PATH and HOME set to find
+// ~/.hermes. PM2 spawns with a minimal env, so we rebuild a full PATH/HOME here —
+// this is why `hermes` works in an interactive shell but fails when spawned by PM2.
+function hermesEnv(): NodeJS.ProcessEnv {
+  const home = process.env.HOME || os.homedir()
+  const extraPaths = ['/usr/local/bin', '/usr/bin', '/bin', `${home}/.local/bin`]
+  const existing = (process.env.PATH || '').split(':').filter(Boolean)
+  const PATH = [...new Set([...extraPaths, ...existing])].join(':')
+  return { ...process.env, HOME: home, PATH }
+}
+
 /* ── Run hermes CLI ─────────────────────────────────────────────── */
-function runHermesCLI(prompt: string, profile: string, timeoutMs = 120_000): Promise<string> {
+function runHermesCLI(prompt: string, profile: string, timeoutMs = 180_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(HERMES_BIN, ['--profile', profile, '-z', prompt, '--yolo'], {
-      env: { ...process.env },
+      env: hermesEnv(),
       timeout: timeoutMs,
     })
     let stdout = '', stderr = ''
@@ -183,7 +194,7 @@ function runHermesCLI(prompt: string, profile: string, timeoutMs = 120_000): Pro
     child.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
     child.on('close', (code) => {
       if (code === 0) resolve(stdout.trim())
-      else reject(new Error(`hermes exited ${code}: ${stderr.slice(0, 200)}`))
+      else reject(new Error(`hermes exited ${code}: ${stderr.slice(0, 300)}`))
     })
     child.on('error', reject)
   })
@@ -279,7 +290,7 @@ export async function sendDiscordWebhook(
 export async function sendTelegram(message: string, target = 'telegram'): Promise<void> {
   return new Promise((resolve) => {
     const child = spawn(HERMES_BIN, ['send', '-t', target, message], {
-      env: { ...process.env }, timeout: 20_000,
+      env: hermesEnv(), timeout: 20_000,
     })
     child.on('close', () => resolve())
     child.on('error', () => resolve())
