@@ -87,7 +87,7 @@ export function buildPayload(
     in_progress_count: tickets.filter(t => t.status === 'in_progress').length,
     tickets: tickets.map(t => ({
       id: t.id, title: t.title,
-      description: t.description.slice(0, 300),
+      description: t.description, // full description — no truncation
       severity: t.severity, status: t.status,
       reporter: t.reporter_name,
       page_url: t.page_url ?? null,
