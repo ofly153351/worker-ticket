@@ -91,11 +91,13 @@ export function getConfig(_req: Request, res: Response, next: NextFunction) {
   } catch (e) { next(e) }
 }
 
+// All fields optional — putConfig merges over the current config, so a partial
+// update (e.g. just { enabled } from the Live/Mock toggle) is valid.
 const configSchema = z.object({
-  enabled:  z.boolean(),
-  provider: z.string().min(1),
-  endpoint: z.string().optional().or(z.literal('')),
-  model:    z.string(),
+  enabled:  z.boolean().optional(),
+  provider: z.string().min(1).optional(),
+  endpoint: z.string().optional(),
+  model:    z.string().optional(),
   apiKey:   z.string().optional(),
 })
 
@@ -103,7 +105,9 @@ export function putConfig(req: Request, res: Response, next: NextFunction) {
   try {
     const body = configSchema.parse(req.body)
     const current = service.readConfig()
-    service.writeConfig({ ...current, ...body, apiKey: body.apiKey ?? current.apiKey })
+    // merge only the keys actually sent (drop undefined) so partial updates don't wipe fields
+    const patch = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined))
+    service.writeConfig({ ...current, ...patch })
     res.json({ success: true, message: 'Config saved', data: service.getSafeConfig() })
   } catch (e) { next(e) }
 }
