@@ -115,6 +115,43 @@
                     </button>
                   </div>
                 </FieldWrapper>
+
+                <!-- Auth — adapts to provider -->
+                <FieldWrapper label="Authentication">
+                  <!-- local: none -->
+                  <div v-if="authKind === 'local'"
+                    class="text-[12px] text-slate-400 rounded-btn border border-dashed border-slate-200 dark:border-slate-700 px-3 py-2">
+                    🦙 Local provider — ไม่ต้อง auth (รัน {{ form.provider }} ในเครื่อง)
+                  </div>
+
+                  <!-- oauth (codex / opencode): login + code -->
+                  <div v-else-if="authKind === 'oauth'" class="space-y-2">
+                    <div class="flex items-start gap-2 rounded-btn bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 px-3 py-2">
+                      <span class="text-base shrink-0">🔐</span>
+                      <p class="text-[12px] text-amber-700 dark:text-amber-300 leading-relaxed">
+                        <strong>{{ form.provider }}</strong> ใช้ OAuth — login บน server แล้ววางโค้ด/โทเค็น:
+                        <code class="block mt-1 font-mono text-[11px] bg-amber-100 dark:bg-amber-900 px-1.5 py-0.5 rounded">hermes login</code>
+                      </p>
+                    </div>
+                    <input v-model="form.apiKey" :type="showKey ? 'text' : 'password'"
+                      placeholder="วาง auth code / token (ถ้า login บน server แล้วเว้นว่างได้)"
+                      class="form-input font-mono text-[13px]" />
+                  </div>
+
+                  <!-- apikey (deepseek / anthropic / …) -->
+                  <div v-else class="space-y-1.5">
+                    <div class="relative">
+                      <input v-model="form.apiKey" :type="showKey ? 'text' : 'password'"
+                        :placeholder="props.profile?.apiKeySet ? 'API key ตั้งไว้แล้ว — วางใหม่เพื่อเปลี่ยน' : 'sk-… / API key'"
+                        class="form-input pr-10 font-mono text-[13px]" />
+                      <button type="button" @click="showKey = !showKey"
+                        class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                        <AppIcon :name="showKey ? 'eyeOff' : 'eye'" :size="15" />
+                      </button>
+                    </div>
+                    <p class="text-[11px] text-slate-400">เก็บใน <code class="font-mono">{{ envKeyName }}</code> ของ profile</p>
+                  </div>
+                </FieldWrapper>
               </div>
 
               <!-- Soul (edit only) -->
@@ -197,6 +234,23 @@ const activeProviderModels = computed(() => {
   return p?.models ?? []
 })
 
+// auth kind per provider (mirrors backend providerAuthKind)
+const authKind = computed<'local' | 'oauth' | 'apikey'>(() => {
+  const p = form.provider
+  if (p.includes('ollama') || p.includes('lmstudio')) return 'local'
+  if (p.includes('codex') || p.includes('opencode'))  return 'oauth'
+  return 'apikey'
+})
+const API_KEY_ENV: Record<string, string> = {
+  deepseek: 'DEEPSEEK_API_KEY', openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY',
+  groq: 'GROQ_API_KEY', mistral: 'MISTRAL_API_KEY', together: 'TOGETHER_API_KEY', google: 'GEMINI_API_KEY',
+}
+const envKeyName = computed(() => {
+  for (const k of Object.keys(API_KEY_ENV)) if (form.provider.includes(k)) return API_KEY_ENV[k]
+  return `${form.provider.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`
+})
+const showKey = ref(false)
+
 const cloneOptions = computed(() => [
   { label: 'Empty (no clone)', value: '' },
   ...props.existingNames.map(n => ({ label: n === 'default' ? '◆ default' : n, value: n })),
@@ -206,6 +260,7 @@ const form = reactive({
   name: '', description: '',
   provider: 'deepseek', model: '', baseUrl: '',
   apiMode: 'chat_completions', soul: '',
+  apiKey: '',
   cloneFrom: '',
 })
 const errors = reactive<Record<string, string>>({})
@@ -213,6 +268,7 @@ const errors = reactive<Record<string, string>>({})
 watch(() => props.modelValue, open => {
   if (!open) return
   Object.keys(errors).forEach(k => delete errors[k])
+  showKey.value = false
 
   if (props.profile) {
     Object.assign(form, {
@@ -223,6 +279,7 @@ watch(() => props.modelValue, open => {
       baseUrl: props.profile.baseUrl,
       apiMode: props.profile.apiMode,
       soul: props.profile.soul,
+      apiKey: '',
       cloneFrom: '',
     })
   } else {
@@ -230,7 +287,7 @@ watch(() => props.modelValue, open => {
       name: '', description: '',
       provider: props.providers[0]?.id ?? 'deepseek',
       model: '', baseUrl: props.providers[0]?.baseUrl ?? '',
-      apiMode: 'chat_completions', soul: '', cloneFrom: '',
+      apiMode: 'chat_completions', soul: '', apiKey: '', cloneFrom: '',
     })
   }
 })
@@ -261,12 +318,13 @@ async function handleSubmit() {
         name: form.name, description: form.description,
         cloneFrom: form.cloneFrom || undefined,
       })
-      // After create, apply model/provider/soul
-      if (form.provider || form.model || form.soul) {
+      // After create, apply model/provider/soul/auth
+      if (form.provider || form.model || form.soul || form.apiKey) {
         saved = await configApi.updateHermesCLI(form.name, {
           provider: form.provider, model: form.model,
           baseUrl: form.baseUrl, apiMode: form.apiMode,
           soul: form.soul || undefined,
+          apiKey: form.apiKey || undefined,
         })
       }
       toastOk('Profile created', `hermes profile ${saved.name} is ready.`)
@@ -275,6 +333,7 @@ async function handleSubmit() {
         provider: form.provider, model: form.model,
         baseUrl: form.baseUrl, apiMode: form.apiMode,
         soul: form.soul,
+        apiKey: form.apiKey || undefined,
       })
       toastOk('Profile updated', `${saved.name} saved to ~/.hermes.`)
     }

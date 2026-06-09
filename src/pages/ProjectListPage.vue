@@ -90,6 +90,12 @@
             @click.stop="runSummary(p)"
             title="Run summary now" />
           <AppButton variant="ghost" size="sm" icon="settings" @click.stop="openEdit(p)">Edit</AppButton>
+          <button type="button" @click.stop="removeProject(p)"
+            :disabled="deletingId === p.id"
+            class="w-8 h-8 rounded-btn flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors disabled:opacity-50"
+            title="Delete project">
+            <AppIcon name="trash" :size="15" />
+          </button>
         </div>
       </AppCard>
     </div>
@@ -125,6 +131,7 @@ import ErrorState          from '@/components/ui/ErrorState.vue'
 import SeverityBar         from '@/components/ui/SeverityBar.vue'
 import ProjectModal        from '@/components/projects/ProjectModal.vue'
 import SummaryPreviewModal from '@/components/projects/SummaryPreviewModal.vue'
+import { projectApi }      from '@/services/project.api'
 import { api } from '@/services/api'
 import { useToast } from '@/composables/useToast'
 import type { Project, Severity } from '@/types'
@@ -155,9 +162,24 @@ const sevCounts = (id: string) =>
 const modalOpen      = ref(false)
 const editingProject = ref<Project | null>(null)
 const runningId      = ref<string | null>(null)
+const deletingId     = ref<string | null>(null)
 const previewOpen    = ref(false)
 const previewProject = ref<Project | null>(null)
 const { success: toastOk, error: toastErr } = useToast()
+
+async function removeProject(p: Project) {
+  if (!confirm(`ลบ project "${p.name}" (${p.code})?\nลบ ticket + summary + รูปทั้งหมดของ project นี้ด้วย — ย้อนกลับไม่ได้`)) return
+  deletingId.value = p.id
+  try {
+    await projectApi.remove(p.id)
+    await projectStore.fetch()
+    toastOk('Deleted', `${p.name} ถูกลบแล้ว`)
+  } catch (err: any) {
+    toastErr('Failed', err?.response?.data?.message ?? 'ลบไม่สำเร็จ')
+  } finally {
+    deletingId.value = null
+  }
+}
 
 function openCreate() {
   editingProject.value = null

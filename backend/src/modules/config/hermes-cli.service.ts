@@ -187,6 +187,42 @@ export function getHermesProfile(name: string): HermesCLIProfile | null {
   return fs.existsSync(dir) ? parseProfile(dir, name, name === 'default') : null
 }
 
+/* ── Auth kinds + env-var mapping per provider ──────────────────── */
+// 'local'  → no auth (ollama/lmstudio)
+// 'oauth'  → device/browser login + code (codex, opencode) → goes to auth.json via `hermes login`
+// 'apikey' → API key in the profile's .env
+export function providerAuthKind(provider = ''): 'local' | 'oauth' | 'apikey' {
+  if (provider.includes('ollama') || provider.includes('lmstudio')) return 'local'
+  if (provider.includes('codex') || provider.includes('opencode'))  return 'oauth'
+  return 'apikey'
+}
+
+const API_KEY_ENV: Record<string, string> = {
+  deepseek:  'DEEPSEEK_API_KEY',
+  openai:    'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  groq:      'GROQ_API_KEY',
+  mistral:   'MISTRAL_API_KEY',
+  together:  'TOGETHER_API_KEY',
+  google:    'GEMINI_API_KEY',
+}
+function apiKeyEnvName(provider = ''): string {
+  for (const k of Object.keys(API_KEY_ENV)) if (provider.includes(k)) return API_KEY_ENV[k]
+  return `${provider.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`
+}
+
+/** Upsert KEY=value into a profile's .env (creates file if missing) */
+function setProfileEnv(dir: string, key: string, value: string) {
+  const envPath = path.join(dir, '.env')
+  let lines: string[] = []
+  try { lines = fs.readFileSync(envPath, 'utf-8').split('\n') } catch {}
+  const idx = lines.findIndex(l => l.startsWith(`${key}=`))
+  const entry = `${key}=${value}`
+  if (idx >= 0) lines[idx] = entry
+  else lines.push(entry)
+  fs.writeFileSync(envPath, lines.filter(l => l.trim() !== '' || true).join('\n').replace(/\n+$/, '\n'))
+}
+
 /* ── Update profile config ───────────────────────────────────────── */
 export interface UpdateProfilePayload {
   provider?: string
@@ -194,6 +230,7 @@ export interface UpdateProfilePayload {
   baseUrl?: string
   apiMode?: string
   soul?: string
+  apiKey?: string   // API key (apikey providers) or pasted OAuth token/code (codex)
 }
 
 export function updateHermesProfile(name: string, payload: UpdateProfilePayload): HermesCLIProfile {
@@ -209,16 +246,32 @@ export function updateHermesProfile(name: string, payload: UpdateProfilePayload)
   if (payload.baseUrl  !== undefined) cfg.model.base_url = payload.baseUrl
   if (payload.apiMode  !== undefined) cfg.model.api_mode = payload.apiMode
 
+  const provider = cfg.model.provider ?? ''
+
   // auto-fill base_url from known providers if blank
-  if (!cfg.model.base_url && cfg.model.provider && PROVIDER_BASE_URLS[cfg.model.provider]) {
-    cfg.model.base_url = PROVIDER_BASE_URLS[cfg.model.provider]
+  if (!cfg.model.base_url && PROVIDER_BASE_URLS[provider]) {
+    cfg.model.base_url = PROVIDER_BASE_URLS[provider]
+  }
+  // codex is OAuth/responses — default api_mode to responses if unset
+  if (providerAuthKind(provider) === 'oauth' && !cfg.model.api_mode) {
+    cfg.model.api_mode = 'responses'
   }
 
   fs.writeFileSync(configPath, yaml.dump(cfg, { lineWidth: 120 }))
 
+  // write credential (if provided) into the profile's .env
+  if (payload.apiKey) {
+    const kind = providerAuthKind(provider)
+    if (kind === 'apikey') {
+      setProfileEnv(dir, apiKeyEnvName(provider), payload.apiKey)
+    } else if (kind === 'oauth') {
+      // best-effort: store the pasted token/code; full OAuth still done via `hermes login`
+      setProfileEnv(dir, 'OPENAI_CODEX_AUTH', payload.apiKey)
+    }
+  }
+
   if (payload.soul !== undefined) {
-    const soulPath = path.join(dir, 'SOUL.md')
-    fs.writeFileSync(soulPath, payload.soul)
+    fs.writeFileSync(path.join(dir, 'SOUL.md'), payload.soul)
   }
 
   return parseProfile(dir, name, name === 'default')

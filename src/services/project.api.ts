@@ -23,4 +23,6 @@ export const projectApi = {
     api.post('/projects', payload).then(r => withColor(r.data)),
   update: (id: string, payload: Partial<Project>) =>
     api.put('/projects/' + id, payload).then(r => withColor(r.data)),
+  remove: (id: string) =>
+    api.delete('/projects/' + id),
 }

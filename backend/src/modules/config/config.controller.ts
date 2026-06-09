@@ -243,6 +243,7 @@ const updateCLISchema = z.object({
   baseUrl:  z.string().optional(),
   apiMode:  z.string().optional(),
   soul:     z.string().optional(),
+  apiKey:   z.string().optional(),
 })
 
 export function updateHermesCLI(req: Request, res: Response, next: NextFunction) {

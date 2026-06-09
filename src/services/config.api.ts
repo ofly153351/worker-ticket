@@ -86,6 +86,8 @@ export interface HermesCLIProfile {
   soulPreview: string
   skillCount: number
   path: string
+  apiMode?: string
+  apiKeySet?: boolean
   platforms: Record<string, { state: string; error_message?: string | null; updated_at?: string }>
 }
 
@@ -102,7 +104,7 @@ export const configApi = {
   getHermesCLI: (name: string) =>
     api.get(`/config/hermes-cli/${name}`).then(r => r.data as unknown as HermesCLIProfile),
 
-  updateHermesCLI: (name: string, payload: { provider?: string; model?: string; baseUrl?: string; apiMode?: string; soul?: string }) =>
+  updateHermesCLI: (name: string, payload: { provider?: string; model?: string; baseUrl?: string; apiMode?: string; soul?: string; apiKey?: string }) =>
     api.put(`/config/hermes-cli/${name}`, payload).then(r => r.data as unknown as HermesCLIProfile),
 
   createHermesCLI: (payload: { name: string; description?: string; cloneFrom?: string; noAlias?: boolean; noSkills?: boolean }) =>
