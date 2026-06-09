@@ -5,7 +5,23 @@ import { spawn } from 'child_process'
 import { env } from '../../config/env'
 import { Ticket, Project } from '@prisma/client'
 
-const HERMES_BIN = path.join(os.homedir(), '.local', 'bin', 'hermes')
+// Resolve the hermes CLI: explicit env override → common install paths → PATH.
+// PM2 often runs with a minimal PATH, so prefer an absolute path when we find one.
+function resolveHermesBin(): string {
+  if (process.env.HERMES_BIN) return process.env.HERMES_BIN
+  const candidates = [
+    path.join(os.homedir(), '.local', 'bin', 'hermes'),
+    '/root/.local/bin/hermes',
+    '/usr/local/bin/hermes',
+    '/usr/bin/hermes',
+  ]
+  for (const c of candidates) {
+    try { if (fs.existsSync(c)) return c } catch {}
+  }
+  return 'hermes' // last resort: rely on PATH
+}
+const HERMES_BIN = resolveHermesBin()
+console.log(`[Hermes] CLI binary: ${HERMES_BIN}`)
 
 interface TicketWithProject extends Ticket { project: Project }
 
@@ -277,12 +293,18 @@ export async function sendNotification(
 ): Promise<void> {
   const target = config.notifyTarget ?? 'telegram'
 
-  if (target === 'discord' && config.discordWebhookUrl) {
+  if (target === 'discord') {
+    if (!config.discordWebhookUrl) {
+      console.warn(`[Notify:${projectCode ?? '?'}] target=discord แต่ไม่มี webhook URL — ไม่ส่ง (ตั้งใน Project หรือ Settings)`)
+      return
+    }
+    console.log(`[Notify:${projectCode ?? '?'}] → Discord webhook`)
     await sendDiscordWebhook(result, config.discordWebhookUrl, projectCode, projectName, date)
     return
   }
 
-  // Telegram: plain text format
+  // Telegram: plain text format (requires hermes CLI on the host)
+  console.log(`[Notify:${projectCode ?? '?'}] → Telegram (${config.telegramTarget ?? 'telegram'})`)
   const counts = result.counts
   const sevLine = counts
     ? `🔴 ${counts.critical} critical  🟠 ${counts.high} high  🔵 ${counts.medium} medium  ⚫ ${counts.low} low`
