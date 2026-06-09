@@ -130,14 +130,17 @@ Open: ${payload.open_count}  |  In Progress: ${payload.in_progress_count}
 ${ticketList || '(no outstanding tickets)'}
 
 ## Instructions
-Analyze these tickets and return ONLY valid JSON with no markdown:
+Analyze these tickets and return ONLY valid JSON with no markdown.
+เขียนเนื้อหาทุกค่า (summary_text, top_risks, problem, solution) เป็น **ภาษาไทย**
+ยกเว้น code, error message, ชื่อ field/function, URL และ technical term ที่คงภาษาอังกฤษ
+ค่า "owner" และ "priority" ให้คงเป็น enum อังกฤษตามด้านล่าง
 {
-  "summary_text": "2-3 sentence executive summary: overall status, severity distribution, and top user impact",
-  "top_risks": ["brief risk phrase", "brief risk phrase", "brief risk phrase"],
+  "summary_text": "สรุป 2-3 ประโยค (ภาษาไทย): สถานะรวม, การกระจาย severity, ผลกระทบต่อผู้ใช้",
+  "top_risks": ["ความเสี่ยงสั้นๆ (ภาษาไทย)", "..."],
   "action_items": [
     {
-      "problem": "concise description of the specific bug/issue",
-      "solution": "specific technical fix or approach — what to do exactly",
+      "problem": "ปัญหา/บั๊กที่เจาะจง (ภาษาไทย)",
+      "solution": "วิธีแก้เชิงเทคนิคที่ทำได้จริง (ภาษาไทย)",
       "owner": "Frontend Dev | Backend Dev | Tech Lead | QA | DevOps",
       "priority": "critical | high | medium | low",
       "done": false
@@ -327,18 +330,18 @@ export async function sendNotification(
 function buildMock(payload: AgentPayload): HermesResult {
   const { counts, project } = payload
   const summary_text = payload.tickets.length === 0
-    ? `No outstanding (open / in-progress) bugs for ${project.name} (${project.code}). All clear.`
-    : `${counts.total} outstanding bugs for ${project.name} — ` +
-      `${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.low} low.`
+    ? `ไม่มีบั๊กค้าง (open / in-progress) สำหรับ ${project.name} (${project.code}) — ระบบปกติดี`
+    : `มีบั๊กค้าง ${counts.total} รายการสำหรับ ${project.name} — ` +
+      `critical ${counts.critical}, high ${counts.high}, medium ${counts.medium}, low ${counts.low}`
   const action_items: HermesResult['action_items'] = []
   if (counts.critical > 0) action_items.push({
-    problem: `${counts.critical} critical bug(s) need immediate attention`,
-    solution: 'Review, prioritise and assign to dev team today',
+    problem: `มีบั๊ก critical ${counts.critical} รายการที่ต้องจัดการด่วน`,
+    solution: 'ทบทวน จัดลำดับความสำคัญ และมอบหมายให้ทีม dev วันนี้',
     owner: 'Dev Team', priority: 'critical', done: false,
   })
   if (counts.high > 0) action_items.push({
-    problem: `${counts.high} high-severity bug(s) at risk of missing sprint`,
-    solution: 'Schedule in next sprint planning',
+    problem: `มีบั๊ก high ${counts.high} รายการเสี่ยงหลุด sprint`,
+    solution: 'จัดเข้า sprint planning รอบถัดไป',
     owner: 'Tech Lead', priority: 'high', done: false,
   })
   return { summary_text, top_risks: [], action_items }
