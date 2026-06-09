@@ -49,13 +49,22 @@ export async function runProjectSummary(project: Project): Promise<string | null
       },
     })
 
-    // Notify
-    if (schedule.notify) {
+    console.log(`[Cron:${project.code}] Summary saved`)
+
+    // ── Notify ───────────────────────────────────────────────────────
+    // A project's own Discord webhook is itself the opt-in: if set, always
+    // send to it — no global toggle required. Otherwise fall back to the
+    // global schedule (notify + target + global webhook).
+    const projectWebhook = (project as any).discord_webhook_url || ''
+    const notifyEnabled  = projectWebhook ? true : (schedule.notify === true)
+
+    if (notifyEnabled) {
+      const target     = projectWebhook ? 'discord' : (schedule.notifyTarget ?? 'telegram')
+      const webhookUrl = projectWebhook || schedule.discordWebhookUrl
       const date = summaryDate.toLocaleDateString('th-TH', {
         day: 'numeric', month: 'long', year: 'numeric',
         timeZone: schedule.timezone ?? DEFAULT_TZ,
       })
-      // Attach counts so Discord embed can show severity breakdown
       const enrichedResult = {
         ...result,
         counts: {
@@ -67,16 +76,14 @@ export async function runProjectSummary(project: Project): Promise<string | null
         },
         scope: SCOPE,
       }
-      // Project-level webhook overrides global config
-      const webhookUrl = (project as any).discord_webhook_url || schedule.discordWebhookUrl
       await sendNotification(enrichedResult, {
-        notifyTarget:      schedule.notifyTarget,
+        notifyTarget:      target,
         discordWebhookUrl: webhookUrl,
         telegramTarget:    schedule.telegramTarget,
-      }, project.code, project.name, date).catch(e => console.warn('[Notify]', (e as Error).message))
+      }, project.code, project.name, date).catch(e => console.warn(`[Notify:${project.code}]`, (e as Error).message))
+    } else {
+      console.log(`[Cron:${project.code}] notify ปิด (project ไม่มี webhook + global notify=false)`)
     }
-
-    console.log(`[Cron:${project.code}] Summary saved`)
     return result.summary_text
   } catch (err) {
     console.error(`[Cron:${project.code}] Failed:`, (err as Error).message)
